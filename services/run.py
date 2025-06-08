@@ -15,6 +15,12 @@ import torch
 import whisper
 from transformers import CLIPProcessor, CLIPModel
 
+from db.db_ops import VideoEmbeddingDB
+from utils import Logger
+
+
+logger = Logger()
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Video embedding processor")
@@ -122,24 +128,35 @@ def encode_video_with_metadata(input_path, output_path, metadata):
 
 def main():
     args = parse_args()
-
+    
     # Validate input file
-    if not Path(args.input).exists():
+    input_path = Path(args.input)
+    if not input_path.exists():
+        logger.error(f"Input file not found: {args.input}")
         raise FileNotFoundError(f"Input file not found: {args.input}")
-
-    print(f"Processing video: {args.input}")
-
+    
+    logger.info(f"Processing video: {args.input}")
+    
     # Extract video segments
     segments = extract_video_segments(args.input, args.segment_duration)
-    print(f"Extracted {len(segments)} segments")
-
+    logger.info(f"Extracted {len(segments)} segments")
+    
     # Process segments with CLIP and Whisper
     results = process_segments(segments, args.device)
-    print("Processed all segments with CLIP and Whisper")
-
+    logger.info("Processed all segments with CLIP and Whisper")
+    
+    # Store results in database
+    with VideoEmbeddingDB() as db:
+        probe = ffmpeg.probe(args.input)
+        duration = float(probe["format"]["duration"])
+        video_id = db.add_video(args.input, duration)
+        
+        for result in results:
+            db.add_frame_embedding(video_id, result)
+    
     # Encode video with metadata
     encode_video_with_metadata(args.input, args.output, results)
-    print(f"Video processing complete. Output saved to: {args.output}")
+    logger.info(f"Video processing complete. Output saved to: {args.output}")
 
 
 if __name__ == "__main__":
